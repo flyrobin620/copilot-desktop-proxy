@@ -1,0 +1,25 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8787",
+    "ANTHROPIC_AUTH_TOKEN": "local-copilot-placeholder",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "copilot-opus[1m]",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "copilot-sonnet[1m]",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "copilot-haiku[1m]",
+    "ANTHROPIC_SMALL_FAST_MODEL": "copilot-haiku[1m]",
+    "ENABLE_TOOL_SEARCH": "true",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "ANTHROPIC_DEFAULT_MODEL": "copilot-auto[1m]",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "Copilot Opus (latest)",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME": "Copilot Sonnet (latest)",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME": "Copilot Haiku (latest)",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES": "thinking,interleaved_thinking,long_context",
+    "ANTHROPIC_CUSTOM_MODEL_OPTION": "copilot-auto[1m]",
+    "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": "Copilot Auto (1M · latest desktop Opus)",
+    "ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION": "Newest desktop Opus on each request. 1M context; CLI reserves output and compaction space.",
+    "ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES": "effort,xhigh_effort,max_effort,thinking,adaptive_thinking,interleaved_thinking,long_context",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES": "effort,xhigh_effort,max_effort,thinking,adaptive_thinking,interleaved_thinking,long_context",
+    "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1",
+    "ANTHROPIC_MODEL": "copilot-auto[1m]"
+  },
+  "model": "copilot-auto[1m]"
+}
