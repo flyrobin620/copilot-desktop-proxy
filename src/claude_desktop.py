@@ -59,6 +59,23 @@ class ConfigurationError(Exception):
     """A fixed, non-sensitive error code suitable for the launcher."""
 
 
+def packaged_process():
+    """True inside an MSIX-packaged app (e.g. a terminal hosted by such an app).
+
+    Windows redirects that process's AppData writes into the package's private
+    LocalCache, so Claude App would never see them: refuse instead of failing silently.
+    """
+    if os.name != 'nt':
+        return False
+    import ctypes
+    length = ctypes.c_uint32(0)
+    try:
+        # APPMODEL_ERROR_NO_PACKAGE (15700) means an ordinary desktop process.
+        return ctypes.windll.kernel32.GetCurrentPackageFullName(ctypes.byref(length), None) != 15700
+    except (AttributeError, OSError):
+        return False
+
+
 def io_error(stage, error):
     reason = stage + ('_permission_denied' if isinstance(error, PermissionError) else '_io_error')
     result = ConfigurationError(reason)
@@ -415,6 +432,8 @@ def main():
         registry = RegistryPolicy()
         if os.environ.get('CLAUDE_USER_DATA_DIR') and args.mode in ('enable', 'enable-helper'):
             raise ConfigurationError('custom_desktop_profile_requires_manual_setup')
+        if args.mode != 'status' and not args.dry_run and packaged_process():
+            raise ConfigurationError('packaged_app_redirects_appdata')
         if args.mode == 'status' or args.dry_run:
             result = configure_desktop(args.mode, registry, path, os.environ['LOCALAPPDATA'],
                                        args.dry_run, os.environ.get('APPDATA'))

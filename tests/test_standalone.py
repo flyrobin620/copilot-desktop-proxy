@@ -322,6 +322,22 @@ class LayoutMigrationTests(unittest.TestCase):
             self.assertEqual((result['migrated'], result['managed_by_this_proxy']), (False, False))
             self.assertEqual(json.loads(state.read_text()), json.loads(json.dumps(other)))
 
+    def test_packaged_app_terminal_refuses_redirected_appdata_writes(self):
+        with TemporaryDirectory() as temp:
+            env = {'LOCALAPPDATA': temp, 'APPDATA': temp}
+            for mode in ('enable', 'enable-helper', 'migrate', 'restore'):
+                with self.subTest(mode=mode), patch.dict('os.environ', env), \
+                     patch('claude_desktop.packaged_process', return_value=True), \
+                     patch('sys.argv', ['claude_desktop.py', mode]), redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(desktop.main(), 1)
+                self.assertEqual(json.loads(output.getvalue())['reason'], 'packaged_app_redirects_appdata')
+            self.assertEqual(list(Path(temp).iterdir()), [])
+            # Read-only status and previews stay available.
+            with patch.dict('os.environ', env), patch('claude_desktop.packaged_process', return_value=True), \
+                 patch('claude_desktop.RegistryPolicy', return_value=desktop_fixtures.MemoryRegistry()), \
+                 patch('sys.argv', ['claude_desktop.py', 'status']), redirect_stdout(io.StringIO()):
+                self.assertEqual(desktop.main(), 0)
+
     def test_model_refresh_repoints_a_root_layout_session_hook(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)

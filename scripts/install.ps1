@@ -357,7 +357,11 @@ try {
         Write-Info 'Claude App credential helper re-pointed to scripts\claude-gateway-auth.ps1.'
         Add-Note 'Claude App was re-pointed to the moved credential script. If Claude App reports a gateway credential error, save your work, fully quit it and reopen it once.'
     } elseif ($desktop.Code -ne 0) {
-        Add-Note "Claude App integration check failed ($($desktop.Value.reason)). Run shortcuts\Check Claude Desktop.cmd."
+        if ($desktop.Value.reason -eq 'packaged_app_redirects_appdata') {
+            Add-Note 'Claude App settings were not updated: this terminal runs inside a packaged app (for example Codex), where Windows redirects AppData. Rerun Install.cmd from Explorer or a normal PowerShell window.'
+        } else {
+            Add-Note "Claude App integration check failed ($($desktop.Value.reason)). Run shortcuts\Check Claude Desktop.cmd."
+        }
     }
     $documents = [Environment]::GetFolderPath('MyDocuments')
     $oldLoader = "'" + (Join-Path $ProxyRoot 'agency-shell.ps1').Replace("'", "''") + "'"
