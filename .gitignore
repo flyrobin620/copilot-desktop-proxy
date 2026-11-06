@@ -26,3 +26,4 @@ local-options.json
 .env.*
 *.pem
 *.key
+/proxy-options.json

@@ -1,6 +1,0 @@
-{
-  "upstream_timeout": 600,
-  "client_timeout": 60,
-  "loki_context_management_compat": true,
-  "loki_thinking_display_compat": true
-}
