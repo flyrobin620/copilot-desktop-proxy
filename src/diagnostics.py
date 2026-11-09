@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import threading
 
-PACKAGE_VERSION = '1.1.20'
+PACKAGE_VERSION = '1.1.21'
 DEFAULT_OPTIONS = {'upstream_timeout': 600, 'client_timeout': 60, 'loki_context_management_compat': True,
                    'loki_thinking_display_compat': True, 'loki_cache_ttl_compat': True,
                    'loki_tool_search_beta_compat': True}
@@ -48,7 +48,8 @@ BOOLEANS = frozenset(('streaming', 'logging_healthy', 'usage_recording_healthy',
                       'authorization_monitor_running', 'authorization_logging_healthy', 'credential_read_recovered',
                       'request_metadata_complete', 'has_output_config', 'has_output_format', 'has_context_management',
                       'has_temperature', 'has_top_p', 'has_top_k', 'has_service_tier', 'has_stop_sequences',
-                      'upstream_error_json', 'upstream_generic_rejection', 'loki_context_management_compat',
+                      'upstream_error_json', 'upstream_generic_rejection', 'upstream_beta_unsupported',
+                      'loki_context_management_compat',
                       'context_management_compat_applied', 'loki_thinking_display_compat',
                       'thinking_display_compat_applied', 'loki_cache_ttl_compat', 'cache_ttl_compat_applied',
                       'loki_tool_search_beta_compat', 'tool_search_beta_compat_applied'))
@@ -304,6 +305,11 @@ def request_metadata(payload, path, beta_header):
         return {'request_metadata_version': 2, 'request_metadata_complete': False}
 
 
+# Exact upstream wording for a refused anthropic-beta value (PROD, 2026-11-09). Only this
+# boolean is recorded; the message itself and the refused value are never logged.
+UPSTREAM_BETA_UNSUPPORTED = 'The requested anthropic-beta feature is not supported.'
+
+
 def upstream_error_metadata(raw):
     """Exact known error types/codes only; no free-text classification or body logging."""
     fields = {'upstream_error_json': False}
@@ -315,6 +321,7 @@ def upstream_error_metadata(raw):
         fields['upstream_error_type'] = _enum_value('upstream_error_type', error.get('type'))
         fields['upstream_error_code'] = _enum_value('upstream_error_code', error.get('code'))
         fields['upstream_generic_rejection'] = error.get('message') == 'Upstream rejected the request.'
+        fields['upstream_beta_unsupported'] = error.get('message') == UPSTREAM_BETA_UNSUPPORTED
     except (ValueError, TypeError, RecursionError):
         pass
     return fields

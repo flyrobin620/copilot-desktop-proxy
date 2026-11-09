@@ -536,7 +536,9 @@ class ResilienceTests(unittest.TestCase):
         for host, enabled, path, affected in cases:
             self.server.options['loki_tool_search_beta_compat'] = enabled
             upstream = Gateway(None)
-            with self.subTest(host=host, enabled=enabled, path=path),                  patch('server.load_config', return_value=('https://' + host + '/api/v1/llmapi', {}, [{'model_id': 'claude-opus-5.5'}])),                  patch('server.http.client.HTTPSConnection', return_value=upstream) as connect:
+            with self.subTest(host=host, enabled=enabled, path=path), \
+                 patch('server.load_config', return_value=('https://' + host + '/api/v1/llmapi', {}, [{'model_id': 'claude-opus-5.5'}])), \
+                 patch('server.http.client.HTTPSConnection', return_value=upstream) as connect:
                 status, response = self.post(body, path, {'anthropic-beta': beta})
             connect.assert_called_once_with(host, timeout=30)
             self.assertEqual(upstream.captured[2], body)
@@ -553,6 +555,9 @@ class ResilienceTests(unittest.TestCase):
         self.assertEqual([r['beta_advanced_tool_use'] for r in responses], [c[-1] for c in cases])
         self.assertTrue(all(r['beta_unknown_count'] == 0 and r['deferred_tool_count'] == 1 and r['tool_reference_count'] == 1
                             for r in responses))
+        errors = [r for r in map(json.loads, text.splitlines()) if r['event'] == 'upstream_http_error']
+        self.assertEqual(len(errors), sum(not c[-1] for c in cases))
+        self.assertTrue(all(r['upstream_beta_unsupported'] and not r['upstream_generic_rejection'] for r in errors))
 
     def test_tool_search_beta_option_defaults_on_and_requires_boolean(self):
         path = self.root/'proxy-options.json'

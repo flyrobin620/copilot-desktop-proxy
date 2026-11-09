@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.21 — 2026-11-09
+
+- **MCP tool search in Claude Desktop Code sessions**: PROD refuses the `anthropic-beta` value
+  `tool-search-tool-2025-10-19` that Claude Code sends in gateway mode, so Claude Code turned tool
+  search off and resent every MCP tool schema (about 340k prompt tokens per request on a machine
+  with ~600 tools). The proxy now renames that exact value to the accepted
+  `advanced-tool-use-2025-11-20` for PROD, header only (option `loki_tool_search_beta_compat`,
+  default on; diagnostics `tool_search_beta_compat_applied`). See `docs/TOOL-SEARCH.md`.
+- Diagnostics: `tool-search-tool-*` counts as `beta_tool_search`; an upstream refusal of a beta
+  value is recorded as `upstream_beta_unsupported`.
+
 ## 1.1.20 — 2026-11-06
 
 - **Standalone mode**: after one Microsoft sign-in (`Install.cmd -SignIn`) the proxy no longer needs

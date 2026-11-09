@@ -210,7 +210,12 @@ class RequestMetadataTests(unittest.TestCase):
     def test_error_metadata_uses_exact_machine_codes_and_never_error_prose(self):
         fields = upstream_error_metadata(b'{"error":{"type":"invalid_request_error","code":"BadRequest","message":"Upstream rejected the request."}}')
         self.assertTrue(fields['upstream_generic_rejection'])
+        self.assertFalse(fields['upstream_beta_unsupported'])
         self.assertEqual(fields['upstream_error_code'], 'BadRequest')
+        fields = upstream_error_metadata(b'{"error":{"message":"The requested anthropic-beta feature is not supported.",'
+                                         b'"type":"invalid_request_error","code":"invalid_body"}}')
+        self.assertTrue(fields['upstream_beta_unsupported'])
+        self.assertFalse(fields['upstream_generic_rejection'])
         self.assertEqual(fields['upstream_error_type'], 'invalid_request_error')
         for error in ({'code': 'PRIVATE_CODE', 'type': 'PRIVATE_TYPE', 'message': 'context_length_exceeded PRIVATE'},
                       {'code': [], 'type': {}, 'message': {'PRIVATE': 'CONTENT'}}):
@@ -218,6 +223,7 @@ class RequestMetadataTests(unittest.TestCase):
             self.assertEqual(fields['upstream_error_code'], 'other')
             self.assertEqual(fields['upstream_error_type'], 'other')
             self.assertFalse(fields['upstream_generic_rejection'])
+            self.assertFalse(fields['upstream_beta_unsupported'])
             self.assertNotIn('PRIVATE', json.dumps(fields))
         for raw in (b'[]', b'{"error":"PRIVATE"}', b'{"error":null}', b'{}'):
             self.assertTrue(upstream_error_metadata(raw)['upstream_error_json'])

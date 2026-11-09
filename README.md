@@ -94,7 +94,7 @@ OpenAI 接口支持 Chat Completions，不宣称实现所有 OpenAI API（例如
 - **401 / 未就绪**：运行 `shortcuts\Sign In.cmd` 重新登录微软账号。Claude `/login` 不影响本代理。
 - **403 / 模型不存在**：账号或组织策略没有该模型权限；`Check Authorization.cmd` 可区分本地与上游问题。
 - **400 Long-lived prompt caching**：见 [兼容性说明](docs/COMPATIBILITY.md)。
-- **“ToolSearch is no longer available”，MCP 工具全部完整声明**：见 [MCP tool search](docs/TOOL-SEARCH.md)。
+- **“ToolSearch is no longer available”，MCP 工具全部完整声明**：1.1.21 起代理已兼容（新开会话生效），原因与验证方法见 [MCP tool search](docs/TOOL-SEARCH.md)。
 - **App 仍走 Claude.ai**：完整退出重开，选择第三方网关模式；CLI 环境变量不能替代 App 配置。
 - **端口被另一目录占用**：先从旧目录运行 `Stop Proxy.cmd`，再在本目录运行 `Install.cmd`。
 

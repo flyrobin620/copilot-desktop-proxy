@@ -9,6 +9,7 @@ tool schemas and inputs, thinking signatures and headers remain unchanged.
 | `loki_context_management_compat` | DF / Opus 5.5 | Omit the exact rejected keep-all-thinking directive |
 | `loki_thinking_display_compat` | DF / Opus 5.5, streaming adaptive thinking | Omit the reproduced `display=updates` and `thinking-display-updates-2026-08-18` beta pair |
 | `loki_cache_ttl_compat` | PROD / Opus 5.5 | Shorten protocol `ephemeral` cache TTL from `1h` to `5m` |
+| `loki_tool_search_beta_compat` | PROD / all models | Rename the `anthropic-beta` value `tool-search-tool-2025-10-19` to `advanced-tool-use-2025-11-20`; header only |
 
 PROD and DF refer to the exact allowed gateway hosts in `src\app_config.py`. The backend comes from
 the signed-in Copilot Code provider. Local configuration does not grant backend or model access.
@@ -23,6 +24,22 @@ The workaround visits only protocol cache locations: root automatic cache contro
 tool definitions, message content blocks and nested tool-result content. It keeps caching enabled,
 shortens retention, leaves unknown TTLs unchanged and does not edit saved conversations.
 Diagnostics record only `cache_ttl_compat_applied` and counts.
+
+## Refused tool-search beta
+
+On 2026-11-09, PROD answered 400 "The requested anthropic-beta feature is not supported." to the
+`tool-search-tool-2025-10-19` value that Claude Code sends in gateway mode (Claude Desktop Code
+sessions). The identical request with `advanced-tool-use-2025-11-20`, the value Claude Code sends to
+first-party endpoints, returned 200 and honoured `defer_loading` and `tool_reference`. Paired probes
+covered Opus 5.5, Sonnet 5.5, Sonnet 5 and Haiku 5.5; DF was not tested and is not adjusted. Without
+the rename Claude Code turns tool search off and resends every MCP tool in full. Details:
+[MCP tool search](TOOL-SEARCH.md).
+
+The workaround replaces only that exact value in the header, in place, and drops it instead when the
+replacement is already present. Other values keep their text and order; the request body is not
+changed. Diagnostics record `tool_search_beta_compat_applied`, and `beta_tool_search` now counts
+`tool-search-tool-*`. Any remaining upstream refusal of a beta value is recorded as
+`upstream_beta_unsupported` on `upstream_http_error`, without the value or the message.
 
 Set an option to `false` in a local `proxy-options.json` in the installation root (untracked; unspecified options keep their defaults) and rerun `Install.cmd -NoPull` to restart the proxy.
 After an upstream fix, verify the original request with compatibility disabled before removing its exception.
