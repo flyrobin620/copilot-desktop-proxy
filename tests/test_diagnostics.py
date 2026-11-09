@@ -22,6 +22,16 @@ class RequestMetadataTests(unittest.TestCase):
         self.assertTrue(safe['loki_thinking_display_compat'])
         self.assertNotIn('PRIVATE', json.dumps(safe))
 
+    def test_gateway_tool_search_beta_is_a_known_family(self):
+        payload = {'tools': [{'name': 'PRIVATE', 'input_schema': {'type': 'object'}, 'defer_loading': True}]}
+        for beta in ('tool-search-tool-2025-10-19', 'tool-search-2025-10-19'):
+            fields = request_metadata(payload, '/v1/messages', 'claude-code-20250219,' + beta)
+            self.assertTrue(fields['beta_tool_search'])
+            self.assertEqual((fields['beta_count'], fields['beta_unknown_count']), (2, 0))
+            self.assertEqual(fields['deferred_tool_count'], 1)
+        safe = safe_record({'tool_search_beta_compat_applied': True, 'loki_tool_search_beta_compat': False})
+        self.assertEqual(safe, {'tool_search_beta_compat_applied': True, 'loki_tool_search_beta_compat': False})
+
     def test_counts_structural_features_without_content_or_mutation(self):
         payload = {
             'model': 'PRIVATE_MODEL', 'max_tokens': 64000,

@@ -4,7 +4,8 @@ import json
 import unittest
 
 from native_compat import (adapt_context_management, KEEP_ALL_THINKING, adapt_thinking_display,
-                           DISPLAY_UPDATES_BETA, UPDATES_THINKING)
+                           DISPLAY_UPDATES_BETA, UPDATES_THINKING, adapt_tool_search_beta,
+                           TOOL_SEARCH_BETA, TOOL_SEARCH_REPLACEMENT_BETA)
 
 
 class ContextManagementTests(unittest.TestCase):
@@ -200,3 +201,34 @@ class ThinkingDisplayTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ToolSearchBetaTests(unittest.TestCase):
+    PROD = 'loki.delve.office.com'
+
+    def test_only_exact_prod_host_and_exact_value_are_renamed(self):
+        header = 'claude-code-20250219,' + TOOL_SEARCH_BETA + ',effort-2025-11-24'
+        renamed = 'claude-code-20250219,' + TOOL_SEARCH_REPLACEMENT_BETA + ',effort-2025-11-24'
+        self.assertEqual(adapt_tool_search_beta(header, upstream_host=self.PROD), (renamed, True))
+        for host in ('df.loki.delve.office.com', 'example.invalid', 'loki.delve.office.com.example.invalid', None):
+            with self.subTest(host=host):
+                self.assertEqual(adapt_tool_search_beta(header, upstream_host=host), (header, False))
+        self.assertEqual(adapt_tool_search_beta(header, upstream_host=self.PROD, enabled=False), (header, False))
+        for other in ('', 'tool-search-tool-2026-01-01', 'tool-search-tool-2025-10-19x', 'xtool-search-tool-2025-10-19',
+                      'advanced-tool-use-2025-11-20', 'claude-code-20250219'):
+            with self.subTest(other=other):
+                self.assertEqual(adapt_tool_search_beta(other, upstream_host=self.PROD), (other, False))
+        for invalid in (None, 1, ['tool-search-tool-2025-10-19']):
+            self.assertEqual(adapt_tool_search_beta(invalid, upstream_host=self.PROD), (invalid, False))
+
+    def test_position_spacing_and_existing_equivalent_are_preserved(self):
+        cases = (
+            (TOOL_SEARCH_BETA, TOOL_SEARCH_REPLACEMENT_BETA),
+            ('a-2025-01-01, ' + TOOL_SEARCH_BETA + ' ,b-2025-01-01', 'a-2025-01-01,' + TOOL_SEARCH_REPLACEMENT_BETA + ',b-2025-01-01'),
+            (TOOL_SEARCH_REPLACEMENT_BETA + ',' + TOOL_SEARCH_BETA, TOOL_SEARCH_REPLACEMENT_BETA),
+            (TOOL_SEARCH_BETA + ',x-2025-01-01, ' + TOOL_SEARCH_REPLACEMENT_BETA, 'x-2025-01-01, ' + TOOL_SEARCH_REPLACEMENT_BETA),
+            (TOOL_SEARCH_BETA + ',' + TOOL_SEARCH_BETA, TOOL_SEARCH_REPLACEMENT_BETA),
+        )
+        for header, expected in cases:
+            with self.subTest(header=header):
+                self.assertEqual(adapt_tool_search_beta(header, upstream_host=self.PROD), (expected, True))

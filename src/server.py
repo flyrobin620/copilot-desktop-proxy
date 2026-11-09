@@ -22,7 +22,7 @@ from diagnostics import (EventLog, exception_fields, load_options, resources, PA
                          request_metadata, upstream_error_metadata)
 from parent_lifetime import watch_parent
 from authorization import AuthorizationMonitor, credential_timing, rejection_category, account_selection
-from native_compat import adapt_context_management, adapt_thinking_display, adapt_cache_ttl
+from native_compat import adapt_context_management, adapt_thinking_display, adapt_cache_ttl, adapt_tool_search_beta
 from desktop_models import desktop_catalog, desktop_message_path
 from token_refresh import TokenRefresher
 from paths import ROOT, SRC
@@ -442,6 +442,8 @@ class Handler(BaseHTTPRequestHandler):
                     upstream_host=endpoint.hostname, resolved_model=request['model'],
                     enabled=route.path == '/v1/messages' and
                     getattr(self.server, 'options', {}).get('loki_thinking_display_compat', True))
+                beta, tool_search_adapted = adapt_tool_search_beta(beta, upstream_host=endpoint.hostname,
+                    enabled=getattr(self.server, 'options', {}).get('loki_tool_search_beta_compat', True))
                 if beta:
                     headers['anthropic-beta'] = beta
                 wire_body, payload, cache_ttl_adapted = adapt_cache_ttl(wire_body, payload,
@@ -451,6 +453,7 @@ class Handler(BaseHTTPRequestHandler):
                 context_adapted = False
                 display_adapted = False
                 cache_ttl_adapted = False
+                tool_search_adapted = False
                 payload = to_anthropic(request, models, self.server.default_effort)
                 wire_body = json.dumps(payload).encode('utf-8')
             self.usage_model = payload['model']
@@ -464,6 +467,7 @@ class Handler(BaseHTTPRequestHandler):
             features['context_management_compat_applied'] = context_adapted
             features['thinking_display_compat_applied'] = display_adapted
             features['cache_ttl_compat_applied'] = cache_ttl_adapted
+            features['tool_search_beta_compat_applied'] = tool_search_adapted
             features['upstream_environment'] = {'loki.delve.office.com': 'prod',
                 'df.loki.delve.office.com': 'df'}.get(endpoint.hostname, 'other')
             upstream_path = endpoint.path + (route.path if native else '/v1/messages')
