@@ -28,6 +28,44 @@ THINKING_DISPLAY_WORKAROUNDS = frozenset({('df.loki.delve.office.com', 'claude-o
 CACHE_TTL_WORKAROUNDS = frozenset({('loki.delve.office.com', 'claude-opus-5-5')})
 
 
+# Paired live controls on 2026-11-09 (PROD; Opus 5.5, Sonnet 5.5, Sonnet 5, Haiku 5.5):
+# Claude Code in gateway mode (Claude Desktop "gateway" provider) names tool search
+# with the anthropic-beta value below; PROD answered 400 "The requested anthropic-beta
+# feature is not supported." The identical body (defer_loading tools, a ToolSearch
+# tool_use and its tool_reference result) returned 200 with advanced-tool-use-2025-11-20,
+# the value Claude Code itself sends to first-party endpoints, and the model then
+# called the referenced deferred tool. Claude Code reacts to the 400 by resending every
+# deferred tool schema in full and keeping tool search off for the conversation.
+TOOL_SEARCH_BETA = 'tool-search-tool-2025-10-19'
+TOOL_SEARCH_REPLACEMENT_BETA = 'advanced-tool-use-2025-11-20'
+TOOL_SEARCH_BETA_WORKAROUNDS = frozenset({'loki.delve.office.com'})
+
+
+def adapt_tool_search_beta(beta_header, *, upstream_host, enabled=True):
+    """Rename the refused tool-search beta value; never touch the request body.
+
+    Only the exact dated value is replaced, in place, by the accepted equivalent;
+    an existing equivalent is not duplicated and every other value keeps its text
+    and order. Other hosts, other versions and malformed headers pass through.
+    """
+    unchanged = (beta_header, False)
+    if (not enabled or not isinstance(beta_header, str)
+            or upstream_host not in TOOL_SEARCH_BETA_WORKAROUNDS):
+        return unchanged
+    tokens = beta_header.split(',')
+    if not any(token.strip() == TOOL_SEARCH_BETA for token in tokens):
+        return unchanged
+    present = any(token.strip() == TOOL_SEARCH_REPLACEMENT_BETA for token in tokens)
+    result = []
+    for token in tokens:
+        if token.strip() == TOOL_SEARCH_BETA:
+            if present:
+                continue
+            token, present = TOOL_SEARCH_REPLACEMENT_BETA, True
+        result.append(token)
+    return ','.join(result), True
+
+
 def adapt_cache_ttl(raw, payload, *, upstream_host, resolved_model, enabled=True):
     """Shorten known unsupported 1h protocol cache markers, preserving other bytes.
 

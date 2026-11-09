@@ -11,7 +11,8 @@ import threading
 
 PACKAGE_VERSION = '1.1.20'
 DEFAULT_OPTIONS = {'upstream_timeout': 600, 'client_timeout': 60, 'loki_context_management_compat': True,
-                   'loki_thinking_display_compat': True, 'loki_cache_ttl_compat': True}
+                   'loki_thinking_display_compat': True, 'loki_cache_ttl_compat': True,
+                   'loki_tool_search_beta_compat': True}
 RANGES = {'upstream_timeout': (30, 1800), 'client_timeout': (5, 300)}
 # Upgrades may retain their existing options file. These fields no longer limit requests.
 LEGACY_CAPACITY_OPTIONS = frozenset(('max_concurrency', 'max_connections'))
@@ -49,7 +50,8 @@ BOOLEANS = frozenset(('streaming', 'logging_healthy', 'usage_recording_healthy',
                       'has_temperature', 'has_top_p', 'has_top_k', 'has_service_tier', 'has_stop_sequences',
                       'upstream_error_json', 'upstream_generic_rejection', 'loki_context_management_compat',
                       'context_management_compat_applied', 'loki_thinking_display_compat',
-                      'thinking_display_compat_applied', 'loki_cache_ttl_compat', 'cache_ttl_compat_applied'))
+                      'thinking_display_compat_applied', 'loki_cache_ttl_compat', 'cache_ttl_compat_applied',
+                      'loki_tool_search_beta_compat', 'tool_search_beta_compat_applied'))
 
 # Only fixed protocol categories may be persisted, including during support export.
 ENUMS = {
@@ -72,6 +74,8 @@ BETA_FAMILIES = {
     'interleaved-thinking': 'beta_interleaved_thinking',
     'advanced-tool-use': 'beta_advanced_tool_use',
     'tool-search': 'beta_tool_search',
+    # Claude Code's gateway-mode value is tool-search-tool-2025-10-19.
+    'tool-search-tool': 'beta_tool_search',
     'context-management': 'beta_context_management',
     'effort': 'beta_effort',
     'adaptive-thinking': 'beta_adaptive_thinking',
@@ -135,6 +139,8 @@ def load_options(root):
         raise ValueError('Invalid proxy option: loki_thinking_display_compat')
     if type(options['loki_cache_ttl_compat']) is not bool:
         raise ValueError('Invalid proxy option: loki_cache_ttl_compat')
+    if type(options['loki_tool_search_beta_compat']) is not bool:
+        raise ValueError('Invalid proxy option: loki_tool_search_beta_compat')
     return options
 
 
