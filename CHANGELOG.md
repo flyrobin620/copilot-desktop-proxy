@@ -8,6 +8,12 @@
   with ~600 tools). The proxy now renames that exact value to the accepted
   `advanced-tool-use-2025-11-20` for PROD, header only (option `loki_tool_search_beta_compat`,
   default on; diagnostics `tool_search_beta_compat_applied`). See `docs/TOOL-SEARCH.md`.
+- **Long Code sessions that hit the gateway's prompt scan limit now compact**: PROD returns
+  `413 prompt_dlp_content_too_large` once the prompt text reaches about 2 MB, which Claude Code
+  showed as "Request too large (max 32MB)" without compacting. The proxy returns exactly that error
+  as `400` "prompt is too long ... capability_rejected: prompt_too_long" on the Messages API, which
+  triggers Claude Code's reactive compaction (option `loki_prompt_too_large_compat`, default on;
+  diagnostics `prompt_too_large_compat_applied`). See `docs/COMPATIBILITY.md`.
 - Diagnostics: `tool-search-tool-*` counts as `beta_tool_search`; an upstream refusal of a beta
   value is recorded as `upstream_beta_unsupported`.
 

@@ -12,7 +12,7 @@ import threading
 PACKAGE_VERSION = '1.1.21'
 DEFAULT_OPTIONS = {'upstream_timeout': 600, 'client_timeout': 60, 'loki_context_management_compat': True,
                    'loki_thinking_display_compat': True, 'loki_cache_ttl_compat': True,
-                   'loki_tool_search_beta_compat': True}
+                   'loki_tool_search_beta_compat': True, 'loki_prompt_too_large_compat': True}
 RANGES = {'upstream_timeout': (30, 1800), 'client_timeout': (5, 300)}
 # Upgrades may retain their existing options file. These fields no longer limit requests.
 LEGACY_CAPACITY_OPTIONS = frozenset(('max_concurrency', 'max_connections'))
@@ -52,7 +52,8 @@ BOOLEANS = frozenset(('streaming', 'logging_healthy', 'usage_recording_healthy',
                       'loki_context_management_compat',
                       'context_management_compat_applied', 'loki_thinking_display_compat',
                       'thinking_display_compat_applied', 'loki_cache_ttl_compat', 'cache_ttl_compat_applied',
-                      'loki_tool_search_beta_compat', 'tool_search_beta_compat_applied'))
+                      'loki_tool_search_beta_compat', 'tool_search_beta_compat_applied',
+                      'loki_prompt_too_large_compat', 'prompt_too_large_compat_applied'))
 
 # Only fixed protocol categories may be persisted, including during support export.
 ENUMS = {
@@ -66,7 +67,7 @@ ENUMS = {
                             'not_found_error', 'rate_limit_error', 'api_error', 'overloaded_error', 'other'),
     'upstream_error_code': ('absent', 'invalid_request', 'invalid_request_error', 'bad_request',
                             'context_length_exceeded', 'model_not_found', 'unsupported_parameter',
-                            'InvalidRequest', 'BadRequest', 'other'),
+                            'InvalidRequest', 'BadRequest', 'invalid_body', 'prompt_dlp_content_too_large', 'other'),
     'speed_mode': ('absent', 'standard', 'fast', 'other'),
     'thinking_display_mode': ('absent', 'summarized', 'omitted', 'highlights', 'updates', 'other'),
 }
@@ -142,6 +143,8 @@ def load_options(root):
         raise ValueError('Invalid proxy option: loki_cache_ttl_compat')
     if type(options['loki_tool_search_beta_compat']) is not bool:
         raise ValueError('Invalid proxy option: loki_tool_search_beta_compat')
+    if type(options['loki_prompt_too_large_compat']) is not bool:
+        raise ValueError('Invalid proxy option: loki_prompt_too_large_compat')
     return options
 
 

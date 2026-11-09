@@ -571,6 +571,58 @@ class ResilienceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_options(self.root)
 
+    def test_prod_prompt_scan_413_is_returned_as_prompt_too_long_400_only_where_eligible(self):
+        dlp = (b'{"error":{"message":"The request text exceeds the configured prompt data protection scan limit.",'
+               b'"type":"invalid_request_error","code":"prompt_dlp_content_too_large"}}')
+        body = b'{"model":"claude-opus-5.5","stream":true,"max_tokens":64,"messages":[{"role":"user","content":"PRIVATE_PROMPT"}]}'
+        cases = (
+            ('loki.delve.office.com', True, '/v1/messages?beta=true', True),
+            ('loki.delve.office.com', False, '/v1/messages', False),
+            ('df.loki.delve.office.com', True, '/v1/messages', False),
+            ('loki.delve.office.com', True, '/v1/chat/completions', False),
+        )
+        for host, enabled, path, affected in cases:
+            self.server.options['loki_prompt_too_large_compat'] = enabled
+            upstream = FakeUpstream(FakeResponse(dlp, status=413))
+            with self.subTest(host=host, enabled=enabled, path=path), \
+                 patch('server.load_config', return_value=('https://' + host + '/api/v1/llmapi', {}, [{'model_id': 'claude-opus-5.5'}])), \
+                 patch('server.http.client.HTTPSConnection', return_value=upstream):
+                status, response = self.post(body, path)
+            error = json.loads(response)['error']
+            if affected:
+                self.assertEqual(status, 400)
+                self.assertEqual(json.loads(response)['type'], 'error')
+                self.assertEqual(error['type'], 'invalid_request_error')
+                self.assertEqual(error['code'], 'prompt_too_long')
+                self.assertTrue(error['message'].startswith('prompt is too long'))
+                self.assertIn('capability_rejected: prompt_too_long', error['message'])
+            else:
+                self.assertEqual(status, 413)
+                self.assertEqual(error['message'], 'The request text exceeds the configured prompt data protection scan limit.')
+        self.wait_for(lambda: self.server.snapshot()['active_connections'] == 0)
+        text = (self.root/'proxy.log').read_text()
+        self.assertNotIn('PRIVATE', text)
+        self.assertNotIn('scan limit', text)
+        records = [json.loads(line) for line in text.splitlines()]
+        errors = [r for r in records if r['event'] == 'upstream_http_error']
+        self.assertEqual([r['prompt_too_large_compat_applied'] for r in errors], [c[-1] for c in cases])
+        self.assertTrue(all(r['upstream_status'] == 413 and r['upstream_error_code'] == 'prompt_dlp_content_too_large'
+                            for r in errors))
+        finished = [r for r in records if r['event'] == 'request_finished']
+        self.assertEqual([(r['status'], r['upstream_status']) for r in finished],
+                         [(400 if c[-1] else 413, 413) for c in cases])
+
+    def test_prompt_too_large_option_defaults_on_and_requires_boolean(self):
+        path = self.root/'proxy-options.json'
+        path.write_text('{}')
+        self.assertTrue(load_options(self.root)['loki_prompt_too_large_compat'])
+        path.write_text('{"loki_prompt_too_large_compat":false}')
+        self.assertFalse(load_options(self.root)['loki_prompt_too_large_compat'])
+        for value in (0, 1, 'true', None, []):
+            path.write_text(json.dumps({'loki_prompt_too_large_compat': value}))
+            with self.assertRaises(ValueError):
+                load_options(self.root)
+
     def test_thinking_display_header_is_omitted_when_no_other_beta_remains(self):
         body = b'{"model":"claude-opus-5.5","stream":true,"thinking":{"type":"adaptive","display":"updates"},"messages":[],"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]}}'
         upstream = FakeUpstream(FakeResponse(b'{"error":{"message":"Still rejected."}}', status=400))

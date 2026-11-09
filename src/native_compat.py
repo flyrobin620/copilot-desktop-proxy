@@ -41,6 +41,41 @@ TOOL_SEARCH_REPLACEMENT_BETA = 'advanced-tool-use-2025-11-20'
 TOOL_SEARCH_BETA_WORKAROUNDS = frozenset({'loki.delve.office.com'})
 
 
+# Live probes on 2026-11-09 (PROD Opus 5.5, single plain-text prompts): bodies of 2,005,444
+# bytes and more received 413 with the exact error below, 1,988,022 bytes did not. A 2.8 MB
+# prompt of one repeated word, far below the token window, was refused alike, so the limit
+# is on prompt text size, not tokens. Claude Code shows this 413 as "Request too large
+# (max 32MB)" and does not compact. It compacts reactively on a 400 whose message contains
+# "prompt is too long" or the token "capability_rejected: prompt_too_long", which shrinks the
+# text below the limit. Only this exact error is rewritten; the generic 400 "Upstream
+# rejected the request." for prompts over the token window is ambiguous and passes through.
+PROMPT_TOO_LARGE_WORKAROUNDS = frozenset({'loki.delve.office.com'})
+PROMPT_DLP_ERROR = {'code': 'prompt_dlp_content_too_large',
+                    'message': 'The request text exceeds the configured prompt data protection scan limit.'}
+PROMPT_TOO_LONG_MESSAGE = ("prompt is too long: the request text exceeds the Copilot gateway's prompt data "
+                           "protection scan limit (prompt_dlp_content_too_large). Compact the conversation or "
+                           "remove large pasted content. capability_rejected: prompt_too_long")
+
+
+def adapt_prompt_too_large(status, raw, *, upstream_host, enabled=True):
+    """Return a Messages error that triggers Claude Code's reactive compaction, or None.
+
+    Only the exact PROD prompt-scan 413 (code and message) qualifies; every other
+    status, host, code, message or malformed body is left to the normal error path.
+    """
+    if not enabled or status != 413 or upstream_host not in PROMPT_TOO_LARGE_WORKAROUNDS:
+        return None
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError, RecursionError):
+        return None
+    error = data.get('error') if isinstance(data, dict) else None
+    if not isinstance(error, dict) or any(error.get(key) != value for key, value in PROMPT_DLP_ERROR.items()):
+        return None
+    return 400, {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': PROMPT_TOO_LONG_MESSAGE,
+                                            'param': None, 'code': 'prompt_too_long'}}
+
+
 def adapt_tool_search_beta(beta_header, *, upstream_host, enabled=True):
     """Rename the refused tool-search beta value; never touch the request body.
 

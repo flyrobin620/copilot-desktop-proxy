@@ -22,7 +22,8 @@ from diagnostics import (EventLog, exception_fields, load_options, resources, PA
                          request_metadata, upstream_error_metadata)
 from parent_lifetime import watch_parent
 from authorization import AuthorizationMonitor, credential_timing, rejection_category, account_selection
-from native_compat import adapt_context_management, adapt_thinking_display, adapt_cache_ttl, adapt_tool_search_beta
+from native_compat import (adapt_context_management, adapt_thinking_display, adapt_cache_ttl, adapt_tool_search_beta,
+                           adapt_prompt_too_large)
 from desktop_models import desktop_catalog, desktop_message_path
 from token_refresh import TokenRefresher
 from paths import ROOT, SRC
@@ -502,7 +503,14 @@ class Handler(BaseHTTPRequestHandler):
             if response.status != 200:
                 self.failure_code = 'upstream_http_error'
                 raw = response.read(64 * 1024)
-                self.diagnostic('upstream_http_error', upstream_status=response.status, **upstream_error_metadata(raw))
+                # Exact PROD prompt-scan 413 -> 400 "prompt is too long" so Claude Code compacts; see native_compat.
+                too_large = adapt_prompt_too_large(response.status, raw, upstream_host=endpoint.hostname,
+                    enabled=native and getattr(self.server, 'options', {}).get('loki_prompt_too_large_compat', True))
+                self.diagnostic('upstream_http_error', upstream_status=response.status,
+                                prompt_too_large_compat_applied=too_large is not None, **upstream_error_metadata(raw))
+                if too_large:
+                    self.send_json(*too_large)
+                    return
                 if response.status in (401, 403):
                     self.failure_code = 'upstream_authentication_rejected' if response.status == 401 else 'upstream_access_denied'
                     self.diagnostic('authorization_rejected', upstream_status=response.status,
