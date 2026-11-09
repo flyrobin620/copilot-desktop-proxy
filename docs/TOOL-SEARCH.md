@@ -43,7 +43,9 @@ Paired minimal requests sent directly to PROD on 2026-11-09:
 | none or `advanced-tool-use-2025-11-20` | deferred tool + `tool_reference` result | 200, the referenced deferred tool is called |
 | both values | deferred tool + `tool_reference` result | 400 |
 
-Opus 5.5, Sonnet 5.5, Sonnet 5 and Haiku 5.5 behaved the same. DF was not tested.
+The full matrix was run on Sonnet 5.5. Opus 5.5, Sonnet 5 and Haiku 5.5 were checked for the
+refused value against `advanced-tool-use-2025-11-20` on the same deferred-tool request: 400 versus
+200, with the referenced tool called. DF was not tested.
 
 Proxy diagnostics show the same pattern: every request with `deferred_tool_count > 0` received an
 upstream 400, and no successful request carried deferred tools. `beta_tool_search` stayed `false`
