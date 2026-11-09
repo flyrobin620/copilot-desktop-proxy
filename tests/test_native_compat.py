@@ -4,7 +4,9 @@ import json
 import unittest
 
 from native_compat import (adapt_context_management, KEEP_ALL_THINKING, adapt_thinking_display,
-                           DISPLAY_UPDATES_BETA, UPDATES_THINKING)
+                           DISPLAY_UPDATES_BETA, UPDATES_THINKING, adapt_tool_search_beta,
+                           TOOL_SEARCH_BETA, TOOL_SEARCH_REPLACEMENT_BETA, adapt_prompt_too_large,
+                           PROMPT_TOO_LONG_MESSAGE)
 
 
 class ContextManagementTests(unittest.TestCase):
@@ -200,3 +202,73 @@ class ThinkingDisplayTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ToolSearchBetaTests(unittest.TestCase):
+    PROD = 'loki.delve.office.com'
+
+    def test_only_exact_prod_host_and_exact_value_are_renamed(self):
+        header = 'claude-code-20250219,' + TOOL_SEARCH_BETA + ',effort-2025-11-24'
+        renamed = 'claude-code-20250219,' + TOOL_SEARCH_REPLACEMENT_BETA + ',effort-2025-11-24'
+        self.assertEqual(adapt_tool_search_beta(header, upstream_host=self.PROD), (renamed, True))
+        for host in ('df.loki.delve.office.com', 'example.invalid', 'loki.delve.office.com.example.invalid', None):
+            with self.subTest(host=host):
+                self.assertEqual(adapt_tool_search_beta(header, upstream_host=host), (header, False))
+        self.assertEqual(adapt_tool_search_beta(header, upstream_host=self.PROD, enabled=False), (header, False))
+        for other in ('', 'tool-search-tool-2026-01-01', 'tool-search-tool-2025-10-19x', 'xtool-search-tool-2025-10-19',
+                      'advanced-tool-use-2025-11-20', 'claude-code-20250219'):
+            with self.subTest(other=other):
+                self.assertEqual(adapt_tool_search_beta(other, upstream_host=self.PROD), (other, False))
+        for invalid in (None, 1, ['tool-search-tool-2025-10-19']):
+            self.assertEqual(adapt_tool_search_beta(invalid, upstream_host=self.PROD), (invalid, False))
+
+    def test_position_spacing_and_existing_equivalent_are_preserved(self):
+        cases = (
+            (TOOL_SEARCH_BETA, TOOL_SEARCH_REPLACEMENT_BETA),
+            ('a-2025-01-01, ' + TOOL_SEARCH_BETA + ' ,b-2025-01-01', 'a-2025-01-01,' + TOOL_SEARCH_REPLACEMENT_BETA + ',b-2025-01-01'),
+            (TOOL_SEARCH_REPLACEMENT_BETA + ',' + TOOL_SEARCH_BETA, TOOL_SEARCH_REPLACEMENT_BETA),
+            (TOOL_SEARCH_BETA + ',x-2025-01-01, ' + TOOL_SEARCH_REPLACEMENT_BETA, 'x-2025-01-01, ' + TOOL_SEARCH_REPLACEMENT_BETA),
+            (TOOL_SEARCH_BETA + ',' + TOOL_SEARCH_BETA, TOOL_SEARCH_REPLACEMENT_BETA),
+        )
+        for header, expected in cases:
+            with self.subTest(header=header):
+                self.assertEqual(adapt_tool_search_beta(header, upstream_host=self.PROD), (expected, True))
+
+
+class PromptTooLargeTests(unittest.TestCase):
+    PROD = 'loki.delve.office.com'
+    DLP = (b'{"error":{"message":"The request text exceeds the configured prompt data protection scan limit.",'
+           b'"type":"invalid_request_error","code":"prompt_dlp_content_too_large"}}')
+
+    def test_exact_prod_scan_limit_413_becomes_a_400_claude_code_compacts_on(self):
+        status, error = adapt_prompt_too_large(413, self.DLP, upstream_host=self.PROD)
+        self.assertEqual(status, 400)
+        self.assertEqual(error, {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': PROMPT_TOO_LONG_MESSAGE,
+                                                            'param': None, 'code': 'prompt_too_long'}})
+        message = error['error']['message']
+        # Claude Code 2.1.317 matches these case-insensitively / as a token (see native_compat).
+        self.assertTrue(message.lower().startswith('prompt is too long'))
+        self.assertTrue(message.endswith('capability_rejected: prompt_too_long'))
+        # No digits: Claude Code would read "<N> tokens > <M>" from the message as a token gap.
+        self.assertFalse(any(ch.isdigit() for ch in message))
+
+    def test_other_hosts_statuses_codes_messages_and_bodies_pass_through(self):
+        self.assertIsNone(adapt_prompt_too_large(413, self.DLP, upstream_host=self.PROD, enabled=False))
+        for host in ('df.loki.delve.office.com', 'example.invalid', 'loki.delve.office.com.example.invalid', None):
+            with self.subTest(host=host):
+                self.assertIsNone(adapt_prompt_too_large(413, self.DLP, upstream_host=host))
+        for status in (400, 401, 403, 404, 429, 500, 200):
+            with self.subTest(status=status):
+                self.assertIsNone(adapt_prompt_too_large(status, self.DLP, upstream_host=self.PROD))
+        variants = (
+            self.DLP.replace(b'prompt_dlp_content_too_large', b'request_too_large'),
+            self.DLP.replace(b'scan limit.', b'scan limit'),
+            self.DLP.replace(b'"code":"prompt_dlp_content_too_large"', b'"code":null'),
+            b'{"error":{"message":"Upstream rejected the request.","type":"invalid_request_error","code":"invalid_body"}}',
+            b'{"message":"The request text exceeds the configured prompt data protection scan limit.",'
+            b'"code":"prompt_dlp_content_too_large"}',
+            b'{"error":"prompt_dlp_content_too_large"}', b'[]', b'null', b'', b'<html>413</html>', bytes([255]), None, b'[' * 2000,
+        )
+        for raw in variants:
+            with self.subTest(raw=raw[:80] if raw else raw):
+                self.assertIsNone(adapt_prompt_too_large(413, raw, upstream_host=self.PROD))

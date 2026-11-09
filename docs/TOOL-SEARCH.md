@@ -1,8 +1,8 @@
 # MCP tool search behind the proxy
 
 Status: investigated on 2026-11-09 with Claude Code 2.1.317 (bundled with Claude Desktop) and the
-PROD gateway. No compatibility change is shipped yet; this page records the root cause, the evidence
-and the candidate fix.
+PROD gateway. Fixed in 1.1.21 by the `loki_tool_search_beta_compat` rename (see
+[Gateway compatibility](COMPATIBILITY.md)); this page records the root cause and the evidence.
 
 ## Symptom
 
@@ -69,17 +69,24 @@ claude -p "Call the <tool> tool." --mcp-config mcp.json --strict-mcp-config --de
 `debug.log` then contains `[ToolSearch] HTTP 400 ... (tool-search-tool-2025-10-19); sending the
 request again without deferred tools` followed by `Tool search is off for this conversation`.
 
-## Candidate fix
+## Fix
 
-Rename only that header value before sending to PROD: replace the exact
+Since 1.1.21 the proxy renames only that header value before sending to PROD: it replaces the exact
 `tool-search-tool-2025-10-19` value in `anthropic-beta` with `advanced-tool-use-2025-11-20`
 (dropping it if the equivalent is already present), leave the body bytes untouched, gate it with a
-`loki_tool_search_beta_compat` option and record `tool_search_beta_compat_applied` in diagnostics.
-A prototype with tests is on the branch `tsw/t248-tool-search-prototype`. Against a private proxy
-instance, the reproduction above then keeps tool search on: 14 tools are sent instead of 62, and
-`ToolSearch` loads the MCP tool through `tool_reference`, with every request returning 200.
+`loki_tool_search_beta_compat` option (default `true`) and records `tool_search_beta_compat_applied`
+in diagnostics. Against a private proxy instance, the reproduction above then keeps tool search on:
+14 tools are sent instead of 62, and `ToolSearch` loads the MCP tool through `tool_reference`, with
+every request returning 200.
 
-Alternatives: dropping the value (also accepted, but loses the `advanced-tool-use` semantics), or
+To check an installation, open a new Claude Desktop Code session: the "ToolSearch is no longer
+available" reminder no longer appears, and in `proxy.log` the `upstream_response` events with
+`deferred_tool_count > 0` have `upstream_status` 200 and `tool_search_beta_compat_applied: true`.
+The rename does not affect a conversation that already turned tool search off; start a new one or
+run `/clear`.
+
+Alternatives considered: dropping the value (also accepted, but loses the `advanced-tool-use` semantics), or
 asking the gateway owners to accept `tool-search-tool-2025-10-19`; after such an upstream fix a
 compatibility rename would be retired as described in [Gateway compatibility](COMPATIBILITY.md).
 `ENABLE_TOOL_SEARCH=false` only avoids the refused round trip; it does not reduce context use.
+To compare, set `loki_tool_search_beta_compat` to `false` as described there.

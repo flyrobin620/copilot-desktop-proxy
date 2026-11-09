@@ -9,9 +9,10 @@ from pathlib import Path
 import re
 import threading
 
-PACKAGE_VERSION = '1.1.20'
+PACKAGE_VERSION = '1.1.21'
 DEFAULT_OPTIONS = {'upstream_timeout': 600, 'client_timeout': 60, 'loki_context_management_compat': True,
-                   'loki_thinking_display_compat': True, 'loki_cache_ttl_compat': True}
+                   'loki_thinking_display_compat': True, 'loki_cache_ttl_compat': True,
+                   'loki_tool_search_beta_compat': True, 'loki_prompt_too_large_compat': True}
 RANGES = {'upstream_timeout': (30, 1800), 'client_timeout': (5, 300)}
 # Upgrades may retain their existing options file. These fields no longer limit requests.
 LEGACY_CAPACITY_OPTIONS = frozenset(('max_concurrency', 'max_connections'))
@@ -47,9 +48,12 @@ BOOLEANS = frozenset(('streaming', 'logging_healthy', 'usage_recording_healthy',
                       'authorization_monitor_running', 'authorization_logging_healthy', 'credential_read_recovered',
                       'request_metadata_complete', 'has_output_config', 'has_output_format', 'has_context_management',
                       'has_temperature', 'has_top_p', 'has_top_k', 'has_service_tier', 'has_stop_sequences',
-                      'upstream_error_json', 'upstream_generic_rejection', 'loki_context_management_compat',
+                      'upstream_error_json', 'upstream_generic_rejection', 'upstream_beta_unsupported',
+                      'loki_context_management_compat',
                       'context_management_compat_applied', 'loki_thinking_display_compat',
-                      'thinking_display_compat_applied', 'loki_cache_ttl_compat', 'cache_ttl_compat_applied'))
+                      'thinking_display_compat_applied', 'loki_cache_ttl_compat', 'cache_ttl_compat_applied',
+                      'loki_tool_search_beta_compat', 'tool_search_beta_compat_applied',
+                      'loki_prompt_too_large_compat', 'prompt_too_large_compat_applied'))
 
 # Only fixed protocol categories may be persisted, including during support export.
 ENUMS = {
@@ -63,7 +67,7 @@ ENUMS = {
                             'not_found_error', 'rate_limit_error', 'api_error', 'overloaded_error', 'other'),
     'upstream_error_code': ('absent', 'invalid_request', 'invalid_request_error', 'bad_request',
                             'context_length_exceeded', 'model_not_found', 'unsupported_parameter',
-                            'InvalidRequest', 'BadRequest', 'other'),
+                            'InvalidRequest', 'BadRequest', 'invalid_body', 'prompt_dlp_content_too_large', 'other'),
     'speed_mode': ('absent', 'standard', 'fast', 'other'),
     'thinking_display_mode': ('absent', 'summarized', 'omitted', 'highlights', 'updates', 'other'),
 }
@@ -72,6 +76,8 @@ BETA_FAMILIES = {
     'interleaved-thinking': 'beta_interleaved_thinking',
     'advanced-tool-use': 'beta_advanced_tool_use',
     'tool-search': 'beta_tool_search',
+    # Claude Code's gateway-mode value is tool-search-tool-2025-10-19.
+    'tool-search-tool': 'beta_tool_search',
     'context-management': 'beta_context_management',
     'effort': 'beta_effort',
     'adaptive-thinking': 'beta_adaptive_thinking',
@@ -135,6 +141,10 @@ def load_options(root):
         raise ValueError('Invalid proxy option: loki_thinking_display_compat')
     if type(options['loki_cache_ttl_compat']) is not bool:
         raise ValueError('Invalid proxy option: loki_cache_ttl_compat')
+    if type(options['loki_tool_search_beta_compat']) is not bool:
+        raise ValueError('Invalid proxy option: loki_tool_search_beta_compat')
+    if type(options['loki_prompt_too_large_compat']) is not bool:
+        raise ValueError('Invalid proxy option: loki_prompt_too_large_compat')
     return options
 
 
@@ -298,6 +308,11 @@ def request_metadata(payload, path, beta_header):
         return {'request_metadata_version': 2, 'request_metadata_complete': False}
 
 
+# Exact upstream wording for a refused anthropic-beta value (PROD, 2026-11-09). Only this
+# boolean is recorded; the message itself and the refused value are never logged.
+UPSTREAM_BETA_UNSUPPORTED = 'The requested anthropic-beta feature is not supported.'
+
+
 def upstream_error_metadata(raw):
     """Exact known error types/codes only; no free-text classification or body logging."""
     fields = {'upstream_error_json': False}
@@ -309,6 +324,7 @@ def upstream_error_metadata(raw):
         fields['upstream_error_type'] = _enum_value('upstream_error_type', error.get('type'))
         fields['upstream_error_code'] = _enum_value('upstream_error_code', error.get('code'))
         fields['upstream_generic_rejection'] = error.get('message') == 'Upstream rejected the request.'
+        fields['upstream_beta_unsupported'] = error.get('message') == UPSTREAM_BETA_UNSUPPORTED
     except (ValueError, TypeError, RecursionError):
         pass
     return fields

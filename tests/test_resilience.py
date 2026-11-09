@@ -509,6 +509,120 @@ class ResilienceTests(unittest.TestCase):
             self.assertTrue(row['beta_context_1m'])
             self.assertTrue(row['beta_advanced_tool_use'])
 
+    def test_tool_search_beta_is_renamed_only_for_prod_and_body_bytes_are_preserved(self):
+        refused, accepted = 'tool-search-tool-2025-10-19', 'advanced-tool-use-2025-11-20'
+        beta = 'claude-code-20250219,interleaved-thinking-2025-05-14,' + refused
+        body = (b'{"model":"claude-opus-5.5","stream":true,"messages":[{"role":"user","content":"PRIVATE_PROMPT"},'
+                b'{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"ToolSearch","input":{"query":"PRIVATE_QUERY"}}]},'
+                b'{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"tool_reference","tool_name":"PRIVATE_TOOL"}]}]}],'
+                b'"tools":[{"name":"ToolSearch","input_schema":{"type":"object"}},'
+                b'{"name":"PRIVATE_TOOL","description":"PRIVATE_DESC","input_schema":{"type":"object"},"defer_loading":true}],"max_tokens":2.56e2}')
+        stream = b'data: {"type":"message_start","message":{"usage":{"input_tokens":26}}}\n\ndata: {"type":"message_delta","usage":{"output_tokens":4}}\n\ndata: {"type":"message_stop"}\n\n'
+
+        class Gateway(FakeUpstream):
+            def request(inner, method, path, body, headers):
+                super().request(method, path, body, headers)
+                rejected = refused in headers.get('anthropic-beta', '')
+                inner.response = FakeResponse(b'{"error":{"message":"The requested anthropic-beta feature is not supported."}}'
+                    if rejected else stream, 'application/json' if rejected else 'text/event-stream',
+                    status=400 if rejected else 200)
+
+        cases = (
+            ('loki.delve.office.com', True, '/v1/messages', True),
+            ('loki.delve.office.com', True, '/v1/messages?beta=true', True),
+            ('loki.delve.office.com', False, '/v1/messages', False),
+            ('df.loki.delve.office.com', True, '/v1/messages', False),
+        )
+        for host, enabled, path, affected in cases:
+            self.server.options['loki_tool_search_beta_compat'] = enabled
+            upstream = Gateway(None)
+            with self.subTest(host=host, enabled=enabled, path=path), \
+                 patch('server.load_config', return_value=('https://' + host + '/api/v1/llmapi', {}, [{'model_id': 'claude-opus-5.5'}])), \
+                 patch('server.http.client.HTTPSConnection', return_value=upstream) as connect:
+                status, response = self.post(body, path, {'anthropic-beta': beta})
+            connect.assert_called_once_with(host, timeout=30)
+            self.assertEqual(upstream.captured[2], body)
+            self.assertEqual(upstream.captured[3]['anthropic-beta'], beta.replace(refused, accepted) if affected else beta)
+            self.assertEqual(status, 200 if affected else 400)
+            if affected:
+                self.assertEqual(response, stream)
+        self.wait_for(lambda: self.server.snapshot()['active_connections'] == 0)
+        text = (self.root/'proxy.log').read_text()
+        self.assertNotIn('PRIVATE', text)
+        responses = [r for r in map(json.loads, text.splitlines()) if r['event'] == 'upstream_response']
+        self.assertEqual([r['tool_search_beta_compat_applied'] for r in responses], [c[-1] for c in cases])
+        self.assertTrue(all(r['beta_tool_search'] != r['tool_search_beta_compat_applied'] for r in responses))
+        self.assertEqual([r['beta_advanced_tool_use'] for r in responses], [c[-1] for c in cases])
+        self.assertTrue(all(r['beta_unknown_count'] == 0 and r['deferred_tool_count'] == 1 and r['tool_reference_count'] == 1
+                            for r in responses))
+        errors = [r for r in map(json.loads, text.splitlines()) if r['event'] == 'upstream_http_error']
+        self.assertEqual(len(errors), sum(not c[-1] for c in cases))
+        self.assertTrue(all(r['upstream_beta_unsupported'] and not r['upstream_generic_rejection'] for r in errors))
+
+    def test_tool_search_beta_option_defaults_on_and_requires_boolean(self):
+        path = self.root/'proxy-options.json'
+        path.write_text('{}')
+        self.assertTrue(load_options(self.root)['loki_tool_search_beta_compat'])
+        path.write_text('{"loki_tool_search_beta_compat":false}')
+        self.assertFalse(load_options(self.root)['loki_tool_search_beta_compat'])
+        self.assertTrue(load_options(self.root)['loki_cache_ttl_compat'])
+        for value in (0, 1, 'true', None, []):
+            path.write_text(json.dumps({'loki_tool_search_beta_compat': value}))
+            with self.assertRaises(ValueError):
+                load_options(self.root)
+
+    def test_prod_prompt_scan_413_is_returned_as_prompt_too_long_400_only_where_eligible(self):
+        dlp = (b'{"error":{"message":"The request text exceeds the configured prompt data protection scan limit.",'
+               b'"type":"invalid_request_error","code":"prompt_dlp_content_too_large"}}')
+        body = b'{"model":"claude-opus-5.5","stream":true,"max_tokens":64,"messages":[{"role":"user","content":"PRIVATE_PROMPT"}]}'
+        cases = (
+            ('loki.delve.office.com', True, '/v1/messages?beta=true', True),
+            ('loki.delve.office.com', False, '/v1/messages', False),
+            ('df.loki.delve.office.com', True, '/v1/messages', False),
+            ('loki.delve.office.com', True, '/v1/chat/completions', False),
+        )
+        for host, enabled, path, affected in cases:
+            self.server.options['loki_prompt_too_large_compat'] = enabled
+            upstream = FakeUpstream(FakeResponse(dlp, status=413))
+            with self.subTest(host=host, enabled=enabled, path=path), \
+                 patch('server.load_config', return_value=('https://' + host + '/api/v1/llmapi', {}, [{'model_id': 'claude-opus-5.5'}])), \
+                 patch('server.http.client.HTTPSConnection', return_value=upstream):
+                status, response = self.post(body, path)
+            error = json.loads(response)['error']
+            if affected:
+                self.assertEqual(status, 400)
+                self.assertEqual(json.loads(response)['type'], 'error')
+                self.assertEqual(error['type'], 'invalid_request_error')
+                self.assertEqual(error['code'], 'prompt_too_long')
+                self.assertTrue(error['message'].startswith('prompt is too long'))
+                self.assertIn('capability_rejected: prompt_too_long', error['message'])
+            else:
+                self.assertEqual(status, 413)
+                self.assertEqual(error['message'], 'The request text exceeds the configured prompt data protection scan limit.')
+        self.wait_for(lambda: self.server.snapshot()['active_connections'] == 0)
+        text = (self.root/'proxy.log').read_text()
+        self.assertNotIn('PRIVATE', text)
+        self.assertNotIn('scan limit', text)
+        records = [json.loads(line) for line in text.splitlines()]
+        errors = [r for r in records if r['event'] == 'upstream_http_error']
+        self.assertEqual([r['prompt_too_large_compat_applied'] for r in errors], [c[-1] for c in cases])
+        self.assertTrue(all(r['upstream_status'] == 413 and r['upstream_error_code'] == 'prompt_dlp_content_too_large'
+                            for r in errors))
+        finished = [r for r in records if r['event'] == 'request_finished']
+        self.assertEqual([(r['status'], r['upstream_status']) for r in finished],
+                         [(400 if c[-1] else 413, 413) for c in cases])
+
+    def test_prompt_too_large_option_defaults_on_and_requires_boolean(self):
+        path = self.root/'proxy-options.json'
+        path.write_text('{}')
+        self.assertTrue(load_options(self.root)['loki_prompt_too_large_compat'])
+        path.write_text('{"loki_prompt_too_large_compat":false}')
+        self.assertFalse(load_options(self.root)['loki_prompt_too_large_compat'])
+        for value in (0, 1, 'true', None, []):
+            path.write_text(json.dumps({'loki_prompt_too_large_compat': value}))
+            with self.assertRaises(ValueError):
+                load_options(self.root)
+
     def test_thinking_display_header_is_omitted_when_no_other_beta_remains(self):
         body = b'{"model":"claude-opus-5.5","stream":true,"thinking":{"type":"adaptive","display":"updates"},"messages":[],"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]}}'
         upstream = FakeUpstream(FakeResponse(b'{"error":{"message":"Still rejected."}}', status=400))
