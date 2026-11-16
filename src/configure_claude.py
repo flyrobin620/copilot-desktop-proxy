@@ -9,12 +9,24 @@ from restore_claude import OWN_HOOK, PROXY_URL
 from paths import ROOT
 
 
-def configure(path, template=None, quiet=False, migrate_legacy_beta=False, dry_run=False):
+class GatewayConflict(ValueError):
+    pass
+
+
+def configure(path, template=None, quiet=False, migrate_legacy_beta=False, dry_run=False,
+              preserve_existing_gateway=False):
     data = json.loads(path.read_text(encoding='utf-8-sig')) if path.exists() else {}
     if not isinstance(data, dict) or not isinstance(data.get('env', {}), dict):
         raise ValueError('Expected settings and env to be JSON objects.')
     template = template or json.loads((ROOT / 'config' / 'claude-settings.json').read_text(encoding='utf-8-sig'))
     env = data.setdefault('env', {})
+    if preserve_existing_gateway:
+        other_url = env.get('ANTHROPIC_BASE_URL')
+        other_provider = any(str(env.get(key, '')).lower() in ('1', 'true') for key in (
+            'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY',
+            'CLAUDE_CODE_USE_MANTLE'))
+        if (other_url and other_url.rstrip('/') != PROXY_URL) or other_provider:
+            raise GatewayConflict('existing_gateway_conflict')
     # Explicit upgrade only: remove the 0/1 override shipped by earlier versions.
     # Ordinary model refresh must preserve a user's later beta preference.
     beta_key = 'CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS'
@@ -40,6 +52,8 @@ def configure(path, template=None, quiet=False, migrate_legacy_beta=False, dry_r
     # If absent, use the nonsecret client placeholder already supplied by the local profile.
     for key, value in template['env'].items():
         if key == 'ANTHROPIC_AUTH_TOKEN' and key in env:
+            continue
+        if preserve_existing_gateway and key == 'ENABLE_TOOL_SEARCH' and key in env:
             continue
         env[key] = value
     env['ANTHROPIC_MODEL'] = template['model']
@@ -86,12 +100,15 @@ if __name__=='__main__':
     parser.add_argument('--migrate-legacy-beta',action='store_true',
                         help='Remove a legacy beta override from this installation during an explicit upgrade.')
     parser.add_argument('--dry-run', action='store_true', help='Validate the settings merge without writing files.')
+    parser.add_argument('--preserve-existing-gateway', action='store_true',
+                        help='Refuse to replace another gateway or cloud provider during installation.')
     arguments=parser.parse_args()
     try:
         template = json.loads(arguments.template.read_text(encoding='utf-8-sig')) if arguments.template else None
         configure(arguments.settings, template, migrate_legacy_beta=arguments.migrate_legacy_beta,
-                  dry_run=arguments.dry_run)
-    except Exception:
+                  dry_run=arguments.dry_run, preserve_existing_gateway=arguments.preserve_existing_gateway)
+    except Exception as error:
         # Never echo user configuration or a JSON parser's input in a launcher error.
-        print(json.dumps({'configured': False, 'reason': 'settings_validation_or_write_failed'}))
+        print(json.dumps({'configured': False, 'reason': 'existing_gateway_conflict'
+                         if isinstance(error, GatewayConflict) else 'settings_validation_or_write_failed'}))
         raise SystemExit(1)

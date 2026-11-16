@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import threading
 
-PACKAGE_VERSION = '1.1.21'
+PACKAGE_VERSION = '1.1.22'
 DEFAULT_OPTIONS = {'upstream_timeout': 600, 'client_timeout': 60, 'loki_context_management_compat': True,
                    'loki_thinking_display_compat': True, 'loki_cache_ttl_compat': True,
                    'loki_tool_search_beta_compat': True, 'loki_prompt_too_large_compat': True}

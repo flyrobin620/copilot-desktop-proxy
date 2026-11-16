@@ -9,7 +9,7 @@ Idempotent. Safe to rerun at any time; every step skips work that is already don
   3. Installs or upgrades the pinned runtimes from config\package-lock.json.
   4. Prepares Microsoft sign-in (standalone mode: no Copilot desktop app needed)
      and silently migrates an older Copilot-database profile.
-  5. Re-points client integrations after folder layout changes.
+  5. Configures Claude Code/App gateways and migrates older client integrations.
   6. Restarts the proxy if it was running (keeps a deliberate stop and the
      startup mode), then verifies version, readiness and one short request.
 
@@ -38,6 +38,8 @@ param(
     [switch]$BundledRuntime,
     # Do not download Claude Code (Claude App / API-only use).
     [switch]$SkipClaude,
+    # Configure gateway clients; Keep only migrates existing integrations.
+    [ValidateSet('Both', 'Code', 'Desktop', 'Keep')][string]$Clients = 'Both',
     # A full Python 3.11+ (with venv) used once to create the sign-in environment.
     [string]$AuthPython
 )
@@ -352,8 +354,34 @@ try {
     # ---------------------------------------------------------------- 5. integrations
     Write-Step 'Updating client integrations'
     $proxyPython = if ($externalPython) { $externalPython } elseif ($pythonStage -and -not (Test-Path -LiteralPath $bundledPython)) { Join-Path $pythonStage 'python.exe' } else { $bundledPython }
-    $desktop = Invoke-Json $proxyPython @('-B', '-X', 'utf8', (Join-Path $ProxyRoot 'src\claude_desktop.py'), 'migrate')
-    if ($desktop.Value -and $desktop.Value.migrated) {
+    $codeSettingsRoot = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.claude' }
+    $codeArgs = @('-B', '-X', 'utf8', (Join-Path $ProxyRoot 'src\configure_claude.py'),
+        '--settings', (Join-Path $codeSettingsRoot 'settings.json'),
+        '--migrate-legacy-beta', '--preserve-existing-gateway')
+    if ($Clients -in @('Both', 'Code')) {
+        $codePreview = Invoke-Json $proxyPython ($codeArgs + '--dry-run')
+        if ($codePreview.Code -ne 0 -or -not $codePreview.Value) {
+            throw "Claude Code gateway configuration is blocked ($($codePreview.Value.reason)). Existing settings were preserved; use -Clients Desktop or Keep to leave Code unchanged."
+        }
+    }
+    $desktopMode = if ($Clients -in @('Both', 'Desktop')) { 'install' } elseif ($Clients -eq 'Keep') { 'migrate' } else { $null }
+    $desktopArgs = @('-B', '-X', 'utf8', (Join-Path $ProxyRoot 'src\claude_desktop.py'), $desktopMode)
+    $wantOnDemand = $StartupMode -eq 'OnDemand' -or ($StartupMode -eq 'Keep' -and $onDemand)
+    if ($desktopMode -eq 'install' -and $wantOnDemand) { $desktopArgs += '--require-helper' }
+    $desktop = if ($desktopMode) { Invoke-Json $proxyPython $desktopArgs } else { [pscustomobject]@{Code=0;Value=$null} }
+    if ($desktop.Code -ne 0 -and $desktopMode -eq 'install') {
+        if ($desktop.Value.reason -eq 'packaged_app_redirects_appdata') {
+            throw 'Claude App configuration was not written: Windows redirects this process to packaged-app AppData. Run Install.cmd from Explorer or a normal PowerShell window; -Clients Code configures only the CLI.'
+        }
+        throw "Claude App gateway configuration is blocked ($($desktop.Value.reason)). Existing policies/settings were preserved; use -Clients Code or Keep to leave App unchanged."
+    }
+    if ($desktopMode -eq 'install') {
+        if (-not $desktop.Value.configured) { throw 'Claude App gateway configuration did not complete.' }
+        $script:Summary['Claude App'] = 'gateway http://127.0.0.1:8787/desktop'
+        if ($desktop.Value.restart_required) {
+            Add-Note 'Claude App gateway configured. Save work and fully reopen the App once to load it; choose Continue for the configured gateway if prompted.'
+        }
+    } elseif ($desktop.Value -and $desktop.Value.migrated) {
         Write-Info 'Claude App credential helper re-pointed to scripts\claude-gateway-auth.ps1.'
         Add-Note 'Claude App was re-pointed to the moved credential script. If Claude App reports a gateway credential error, save your work, fully quit it and reopen it once.'
     } elseif ($desktop.Code -ne 0) {
@@ -362,6 +390,14 @@ try {
         } else {
             Add-Note "Claude App integration check failed ($($desktop.Value.reason)). Run shortcuts\Check Claude Desktop.cmd."
         }
+    }
+    if ($Clients -in @('Both', 'Code')) {
+        $codeResult = Invoke-Json $proxyPython $codeArgs
+        if ($codeResult.Code -ne 0 -or -not $codeResult.Value.configured) {
+            throw "Claude Code gateway configuration failed ($($codeResult.Value.reason)); check the user settings file."
+        }
+        $script:Summary['Claude Code'] = 'gateway http://127.0.0.1:8787 (SessionStart enabled)'
+        Add-Note 'Claude Code CLI gateway configured for this Windows user. Start a new CLI session to load these settings.'
     }
     $documents = [Environment]::GetFolderPath('MyDocuments')
     $oldLoader = "'" + (Join-Path $ProxyRoot 'agency-shell.ps1').Replace("'", "''") + "'"
@@ -375,7 +411,7 @@ try {
             Write-Info "Agency loader re-pointed in $folder profile."
         }
     }
-    Write-Info 'Claude Code settings are refreshed when the proxy starts.'
+    Write-Info 'Models for opted-in Claude Code settings are refreshed when the proxy starts.'
 
     # ---------------------------------------------------------------- 6. restart and verify
     Write-Step 'Restarting and verifying'
@@ -400,10 +436,13 @@ try {
         Invoke-Script 'start.ps1'
     }
     if ($StartupMode -eq 'OnDemand') {
-        $helperResult = Invoke-Json $proxyPython @('-B', '-X', 'utf8', (Join-Path $ProxyRoot 'src\claude_desktop.py'), 'enable-helper')
-        if ($helperResult.Code -ne 0) { throw "On-demand startup needs this proxy's own local Claude App configuration ($($helperResult.Value.reason)). See docs\TOKEN-REFRESH.md." }
+        if ($Clients -eq 'Keep') {
+            # Preserve the old explicit mode-switch behavior for existing App deployments.
+            $helperResult = Invoke-Json $proxyPython @('-B', '-X', 'utf8', (Join-Path $ProxyRoot 'src\claude_desktop.py'), 'enable-helper')
+            if ($helperResult.Code -ne 0) { throw "On-demand startup needs an owned App helper ($($helperResult.Value.reason)); use -Clients Code to configure a CLI startup hook, or Both for a new App deployment." }
+        }
         Invoke-Script 'set-startup-mode.ps1' @('-Mode', 'OnDemand')
-        Add-Note 'Claude App now starts the proxy on demand. Save your work, fully quit Claude App and reopen it once.'
+        Add-Note 'On-demand startup enabled. A configured Claude Code SessionStart hook or Claude App credential helper starts the proxy.'
     } elseif ($StartupMode -eq 'AtLogon') {
         Invoke-Script 'set-startup-mode.ps1' @('-Mode', 'SignIn')
     }

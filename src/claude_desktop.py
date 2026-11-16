@@ -76,6 +76,25 @@ def packaged_process():
         return False
 
 
+def redirected_appdata(local_root):
+    """Some inherited virtualized processes have no package identity themselves.
+
+    Resolve existing directories AND files: a directory can be physical while
+    individual files beneath it are redirected. This check creates no files.
+    """
+    root = Path(local_root)
+    for relative in ('Claude-3p', 'Claude-3p/configLibrary',
+                     'Claude-3p/configLibrary/_meta.json',
+                     'Claude-3p/configLibrary/' + LOCAL_ENTRY_ID + '.json',
+                     'CopilotDesktopProxy', 'CopilotDesktopProxy/claude-desktop-integration.json'):
+        path = root / relative
+        requested = str(path.absolute()).replace('\\', '/').casefold()
+        resolved = str(path.resolve()).replace('\\', '/').casefold()
+        if requested != resolved and '/packages/' in resolved and '/localcache/' in resolved:
+            return True
+    return False
+
+
 def io_error(stage, error):
     reason = stage + ('_permission_denied' if isinstance(error, PermissionError) else '_io_error')
     result = ConfigurationError(reason)
@@ -328,7 +347,8 @@ def apply_local(mode, registry, state_path, local_root, dry_run=False, roaming_r
     return result
 
 
-def configure_desktop(mode, registry, state_path, local_root, dry_run=False, roaming_root=None):
+def configure_desktop(mode, registry, state_path, local_root, dry_run=False, roaming_root=None,
+                      require_helper=False):
     if mode == 'migrate':
         try:
             read_state(state_path)
@@ -336,6 +356,26 @@ def configure_desktop(mode, registry, state_path, local_root, dry_run=False, roa
             # Owned by another installation folder (or edited): never touch it.
             return {'mode': 'migrate', 'migrated': False, 'dry_run': dry_run, 'managed_by_this_proxy': False}
     state = read_state(state_path)
+    if mode == 'install':
+        if state is None:
+            # New installs use the local library and a startup helper. Never
+            # shadow an existing enterprise policy or a foreign local profile.
+            preview = apply_local('enable', registry, state_path, local_root, True, roaming_root)
+            if dry_run:
+                return {**preview, 'mode': mode, 'restart_required': True}
+            apply_local('enable', registry, state_path, local_root, roaming_root=roaming_root)
+            return {**enable_local_helper(registry, state_path, local_root, roaming_root=roaming_root),
+                    'mode': mode, 'restart_required': True}
+        if state in LOCAL_STATES:
+            entry = Path(local_root) / 'Claude-3p' / 'configLibrary' / (LOCAL_ENTRY_ID + '.json')
+            changed = read_local_file(entry) != HELPER_VALUES
+            return {**enable_local_helper(registry, state_path, local_root, dry_run, roaming_root),
+                    'mode': mode, 'restart_required': changed}
+        if require_helper:
+            raise ConfigurationError('on_demand_requires_local_configuration')
+        result = apply('enable', registry, state_path, dry_run,
+                       local_configuration_present(local_root, roaming_root))
+        return {**result, 'mode': mode, 'restart_required': bool(result['changed_values'])}
     if mode == 'enable-helper':
         return enable_local_helper(registry, state_path, local_root, dry_run, roaming_root)
     if mode == 'migrate':
@@ -423,24 +463,26 @@ def state_lock(directory):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('enable', 'enable-helper', 'migrate', 'status', 'restore'))
+    parser.add_argument('mode', choices=('enable', 'enable-helper', 'install', 'migrate', 'status', 'restore'))
     parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--require-helper', action='store_true')
     args = parser.parse_args()
     try:
         directory = Path(os.environ['LOCALAPPDATA']) / 'CopilotDesktopProxy'
         path = directory / 'claude-desktop-integration.json'
         registry = RegistryPolicy()
-        if os.environ.get('CLAUDE_USER_DATA_DIR') and args.mode in ('enable', 'enable-helper'):
+        if os.environ.get('CLAUDE_USER_DATA_DIR') and args.mode in ('enable', 'enable-helper', 'install'):
             raise ConfigurationError('custom_desktop_profile_requires_manual_setup')
-        if args.mode != 'status' and not args.dry_run and packaged_process():
+        if args.mode != 'status' and not args.dry_run and (
+                packaged_process() or redirected_appdata(os.environ['LOCALAPPDATA'])):
             raise ConfigurationError('packaged_app_redirects_appdata')
         if args.mode == 'status' or args.dry_run:
             result = configure_desktop(args.mode, registry, path, os.environ['LOCALAPPDATA'],
-                                       args.dry_run, os.environ.get('APPDATA'))
+                                       args.dry_run, os.environ.get('APPDATA'), args.require_helper)
         else:
             with state_lock(directory):
                 result = configure_desktop(args.mode, registry, path, os.environ['LOCALAPPDATA'],
-                                           roaming_root=os.environ.get('APPDATA'))
+                                           roaming_root=os.environ.get('APPDATA'), require_helper=args.require_helper)
         print(json.dumps({'ok': True, **result}))
         return 0
     except Exception as error:

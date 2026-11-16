@@ -28,6 +28,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1
 其他选项只在用户明确要求时使用：`-StartupMode OnDemand|AtLogon`、`-NoPull`（本地有未提交修改且用户要保留时）、
 `-SkipInferenceCheck`（用户不允许发送请求时）、`-NoStart`。更新请求不包含 commit、push 或发布的授权。
 
+安装器默认 `-Clients Both` 首次配置 CLI 与桌面 App 的本地网关。用户只要 CLI/App 时分别用
+`-Clients Code` / `Desktop`；要求不新增客户端接入时用 `-Clients Keep`，仅迁移旧配置。
+已有其他网关或企业策略冲突时保留并转告，不擅自清除配置。
+若报 `packaged_app_redirects_appdata`，需从普通 PowerShell/资源管理器运行；不能把 Codex
+私有目录内的配置当成本机 Claude 配置成功。普通安装成功也不等于已运行的 App 已重新加载；
+必须转告首次配置后的重开提示。
+
 ## 读结果
 
 - 退出码 0：成功。1：失败，原因在 `ERROR:` 一行。2：只有最后的短请求失败。

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.22 — 2026-11-16
+
+- Installer now configures Claude Code CLI and Claude Desktop gateways on first use,
+  with `-Clients Both|Code|Desktop|Keep` selection, preserved user settings and conflict checks.
+- New Desktop installs use the local configuration library with an on-demand credential helper.
+  Owned registry deployments remain supported with their existing startup behavior.
+- Detect redirected AppData by resolved configuration paths as well as package identity,
+  preventing a successful-looking setup in a packaged application's private profile.
+
 ## 1.1.21 — 2026-11-09
 
 - **MCP tool search in Claude Desktop Code sessions**: PROD refuses the `anthropic-beta` value

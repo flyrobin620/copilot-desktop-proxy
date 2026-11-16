@@ -39,6 +39,10 @@ cd copilot-desktop-proxy
 已有 Copilot Code 的机器可随时运行 `Install.cmd -SignIn` 改为独立登录。
 选项和细节见 [安装与更新](docs/UPDATE.md)，AI 执行请用 [更新 skill](.agents/skills/copilot-proxy-update/SKILL.md)。
 
+默认安装会把 Claude Code CLI 和 Claude 桌面 App 接入本地网关；也可以用
+`Install.cmd -Clients Code` 只配置 CLI，或 `-Clients Desktop` 只配置 App。
+已有其他网关或企业策略时会报告冲突并保留设置。`-Clients Keep` 只迁移旧配置。
+
 ZIP 用户：在 GitHub 选择 **Code → Download ZIP**，完整解压后双击 **Install.cmd**。
 
 ## 使用
@@ -61,7 +65,7 @@ ZIP 用户：在 GitHub 选择 **Code → Download ZIP**，完整解压后双击
 `Launch Claude.cmd` 为本次 CLI 配置代理，默认模型 **Copilot Auto (1M)**，跟随账号模型目录中的最新 Opus。
 `/model` 可选择具体模型；`/context` 可检查客户端窗口预算。
 1M 是客户端窗口配置，不代表所有上游模型都已通过满窗口验证。
-希望普通 `claude` 也使用此代理，运行 `Enable Claude Clients.cmd`（合并用户设置并添加 SessionStart 启动钩子）。
+安装器默认也配置普通 `claude`（合并用户设置并添加 SessionStart 启动钩子），新开 CLI 会话生效。
 
 ### Claude 桌面 App
 
