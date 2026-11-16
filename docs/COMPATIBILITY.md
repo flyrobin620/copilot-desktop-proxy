@@ -74,6 +74,26 @@ Set an option to `false` in a local `proxy-options.json` in the installation roo
 After an upstream fix, verify the original request with compatibility disabled before removing its exception.
 Do not generalize one model's probe to every model, feature or full context capacity.
 
+## Outbound proxy
+
+By default the proxy connects to the gateway directly and ignores `HTTPS_PROXY`.
+To send gateway traffic (model requests, the `/models` catalog and Microsoft sign-in via MSAL)
+through an HTTP proxy, set `upstream_proxy` in the local `proxy-options.json`:
+
+```json
+{"upstream_proxy": "http://user:password@proxy.example:8080"}
+```
+
+Only `http://host[:port]` proxies are supported (default port 80); HTTPS is tunnelled with `CONNECT`,
+so TLS to the gateway stays end to end. Credentials are optional, percent-encode special characters,
+and are sent only to the proxy as Basic `Proxy-Authorization`. The URL is never logged or reported;
+`/health` and diagnostics show only `upstream_proxy_configured`. Windows WAM broker sign-in follows
+the system proxy settings. Rerun `Install.cmd -NoPull` to apply; remove the key or set `""` for direct.
+
+To keep Microsoft sign-in off the proxy while gateway traffic still uses it, also set
+`"sign_in_bypass_proxy": true` (default `false`: sign-in uses `upstream_proxy` too). Sign-in then
+connects as it would without this option configured.
+
 ## Optional backend configuration
 
 `Configure Copilot Client.cmd` saves `COPILOT_BYOK_BACKEND=loki-sdf` for the current user.

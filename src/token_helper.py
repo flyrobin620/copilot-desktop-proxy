@@ -47,9 +47,21 @@ def application():
         cache = PersistedTokenCache(FilePersistenceWithDataProtection(str(folder / 'token_cache.bin')))
     except Exception:
         raise RefreshError('cache_unavailable') from None
+    proxy = sign_in_proxy()
     return msal.PublicClientApplication(CLIENT_ID,
         authority='https://login.microsoftonline.com/common', enable_broker_on_windows=True,
-        token_cache=cache, timeout=15)
+        token_cache=cache, timeout=15, proxies={'http': proxy, 'https': proxy} if proxy else None)
+
+
+def sign_in_proxy(root=None):
+    """Apply the optional outbound proxy (proxy-options.json) to gateway calls in this
+    process; return the proxy for MSAL sign-in, or "" when sign_in_bypass_proxy is set."""
+    from app_config import set_upstream_proxy
+    from diagnostics import load_options
+    from paths import ROOT
+    options = load_options(ROOT if root is None else root)
+    set_upstream_proxy(options['upstream_proxy'])
+    return '' if options['sign_in_bypass_proxy'] else options['upstream_proxy']
 
 
 def acquire(settings, force=False, interactive=False, token_to_renew=None):

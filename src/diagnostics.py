@@ -12,7 +12,11 @@ import threading
 PACKAGE_VERSION = '1.1.22'
 DEFAULT_OPTIONS = {'upstream_timeout': 600, 'client_timeout': 60, 'loki_context_management_compat': True,
                    'loki_thinking_display_compat': True, 'loki_cache_ttl_compat': True,
-                   'loki_tool_search_beta_compat': True, 'loki_prompt_too_large_compat': True}
+                   'loki_tool_search_beta_compat': True, 'loki_prompt_too_large_compat': True,
+                   # Optional outbound HTTP proxy for gateway traffic; "" connects directly.
+                   'upstream_proxy': '',
+                   # true: Microsoft sign-in (MSAL) connects directly even when upstream_proxy is set.
+                   'sign_in_bypass_proxy': False}
 RANGES = {'upstream_timeout': (30, 1800), 'client_timeout': (5, 300)}
 # Upgrades may retain their existing options file. These fields no longer limit requests.
 LEGACY_CAPACITY_OPTIONS = frozenset(('max_concurrency', 'max_connections'))
@@ -40,6 +44,7 @@ NUMBERS = NUMBERS | frozenset(('message_role_user_count', 'message_role_assistan
 WORDS = frozenset('event phase recorded_phase reason stage error_type outcome protocol model task_state '
                   'credential_timing upstream_error_category database_selection token_refresh_state credential_source'.split())
 BOOLEANS = frozenset(('streaming', 'logging_healthy', 'usage_recording_healthy', 'stop_requested',
+                      'upstream_proxy_configured', 'sign_in_bypass_proxy',
                       'token_refresh_enabled', 'token_refresh_running',
                       'worker_alive', 'in_startup_grace',
                       'state_stale', 'task_exists', 'task_enabled', 'task_owned', 'task_available', 'recovery_armed',
@@ -145,7 +150,18 @@ def load_options(root):
         raise ValueError('Invalid proxy option: loki_tool_search_beta_compat')
     if type(options['loki_prompt_too_large_compat']) is not bool:
         raise ValueError('Invalid proxy option: loki_prompt_too_large_compat')
+    if type(options['sign_in_bypass_proxy']) is not bool:
+        raise ValueError('Invalid proxy option: sign_in_bypass_proxy')
+    from app_config import parse_proxy_url
+    parse_proxy_url(options['upstream_proxy'])
     return options
+
+
+def public_options(options):
+    """Options safe to report or log: the proxy URL may hold credentials."""
+    result = {key: value for key, value in options.items() if key != 'upstream_proxy'}
+    result['upstream_proxy_configured'] = bool(options.get('upstream_proxy'))
+    return result
 
 
 def safe_record(record):

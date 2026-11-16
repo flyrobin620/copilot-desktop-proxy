@@ -2,6 +2,9 @@
 
 ## 1.1.22 — 2026-11-16
 
+- Optional outbound HTTP proxy for gateway traffic: `upstream_proxy` in `proxy-options.json`
+  (CONNECT tunnel, optional Basic credentials, never logged). Direct connection remains the default.
+  `sign_in_bypass_proxy: true` keeps Microsoft sign-in off that proxy (default `false`).
 - Installer now configures Claude Code CLI and Claude Desktop gateways on first use,
   with `-Clients Both|Code|Desktop|Keep` selection, preserved user settings and conflict checks.
 - New Desktop installs use the local configuration library with an on-demand credential helper.

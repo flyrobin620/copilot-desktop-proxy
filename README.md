@@ -102,6 +102,7 @@ OpenAI 接口支持 Chat Completions，不宣称实现所有 OpenAI API（例如
 - **长会话报 “Request too large (max 32MB)”，不自动压缩**：上游的提示词扫描上限（约 2 MB 文本）返回 413；1.1.21 起代理把它改为 Claude Code 会自动压缩的 400 “prompt is too long”，见 [兼容性说明](docs/COMPATIBILITY.md)。
 - **App 仍走 Claude.ai**：完整退出重开，选择第三方网关模式；CLI 环境变量不能替代 App 配置。
 - **端口被另一目录占用**：先从旧目录运行 `Stop Proxy.cmd`，再在本目录运行 `Install.cmd`。
+- **需要经代理访问上游**：见 [出站代理](docs/COMPATIBILITY.md#outbound-proxy)。
 
 ## 目录结构
 

@@ -106,6 +106,7 @@
   "tests/test_standalone.py",
   "tests/test_supervisor.py",
   "tests/test_token_refresh.py",
+  "tests/test_upstream_proxy.py",
   "tests/test_usage.py",
   "tests/verify_windows_recovery.py"
 ]

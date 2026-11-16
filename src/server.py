@@ -15,10 +15,10 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit, parse_qs
 
 from adapter import InvalidRequest, StreamAdapter, completion, iter_sse, to_anthropic
-from app_config import load_config
+from app_config import load_config, set_upstream_proxy, upstream_connection
 from usage_store import UsageStore, UsageObserver
 from model_selection import ALIASES, resolve_model, replace_model, default_auto_model, default_client_model_id, use_1m_context
-from diagnostics import (EventLog, exception_fields, load_options, resources, PACKAGE_VERSION,
+from diagnostics import (EventLog, exception_fields, load_options, public_options, resources, PACKAGE_VERSION,
                          request_metadata, upstream_error_metadata)
 from parent_lifetime import watch_parent
 from authorization import AuthorizationMonitor, credential_timing, rejection_category, account_selection
@@ -37,7 +37,7 @@ class ProxyHTTPServer(ThreadingHTTPServer):
     request_queue_size = 128
 
     def __init__(self, address, handler, options, event_log):
-        self.options, self.event_log = options, event_log
+        self.options, self.event_log = public_options(options), event_log
         self.stats_lock = threading.Lock()
         self.stats = dict.fromkeys(('active_requests', 'active_connections', 'completed_requests'), 0)
         self.started, self.next_sample = time.monotonic(), 0
@@ -478,7 +478,7 @@ class Handler(BaseHTTPRequestHandler):
             # client. Preserve exact request bytes, beta headers and call IDs.
             # Never replay a partial stream, disconnect, timeout, 403 or 429.
             for attempt in range(2):
-                connection = http.client.HTTPSConnection(endpoint.hostname, timeout=30)
+                connection = upstream_connection(endpoint.hostname, timeout=30)
                 self.request_stage = 'upstream_send'
                 connection.request('POST', upstream_path, wire_body, headers)
                 self.request_stage = 'upstream_headers'
@@ -670,6 +670,7 @@ def main():
             if not 30 <= args.timeout <= 1800:
                 raise ValueError('Timeout must be between 30 and 1800 seconds.')
             options['upstream_timeout'] = args.timeout
+        set_upstream_proxy(options['upstream_proxy'])
         # Bind even when authorization is temporarily unavailable; /health reports the problem.
         log.event('worker_starting', stage='bind')
         server = ProxyHTTPServer(('127.0.0.1', args.port), Handler, options, log)
@@ -695,7 +696,7 @@ def main():
         except Exception as exc:
             server.usage_write_failed = True
             log.event('usage_init_failed', **exception_fields(exc))
-        log.event('worker_ready', port=args.port, **options, **resources())
+        log.event('worker_ready', port=args.port, **public_options(options), **resources())
         server.serve_forever()
     except KeyboardInterrupt:
         pass

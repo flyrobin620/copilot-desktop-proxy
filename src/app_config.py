@@ -139,10 +139,57 @@ def parse_models(body):
     return models
 
 
+def parse_proxy_url(value):
+    """Validate an optional outbound HTTP proxy ("" = direct).
+
+    Only plain http:// proxies are supported: HTTPS traffic is tunnelled with
+    CONNECT, so TLS to the gateway stays end to end. Returns None or
+    (host, port, proxy_headers); credentials in the URL become a Basic
+    Proxy-Authorization header sent only to the proxy.
+    """
+    if value in (None, ''):
+        return None
+    if not isinstance(value, str) or len(value) > 512 or not value.isprintable() or any(c.isspace() for c in value):
+        raise ValueError('Invalid proxy option: upstream_proxy')
+    try:
+        parts = urlsplit(value)
+        port = parts.port
+    except ValueError:
+        raise ValueError('Invalid proxy option: upstream_proxy') from None
+    if (parts.scheme.lower() != 'http' or not parts.hostname or parts.path not in ('', '/')
+            or parts.query or parts.fragment):
+        raise ValueError('Invalid proxy option: upstream_proxy (use http://[user:password@]host:port)')
+    headers = {}
+    if parts.username is not None:
+        from urllib.parse import unquote
+        credential = unquote(parts.username) + ':' + unquote(parts.password or '')
+        headers['Proxy-Authorization'] = 'Basic ' + base64.b64encode(credential.encode('utf-8')).decode('ascii')
+    return parts.hostname, port or 80, headers
+
+
+_upstream_proxy = None
+
+
+def set_upstream_proxy(value):
+    """Process-wide outbound proxy for gateway requests; "" or None restores direct."""
+    global _upstream_proxy
+    _upstream_proxy = parse_proxy_url(value)
+
+
+def upstream_connection(hostname, timeout):
+    """HTTPS connection to the gateway, tunnelled through the configured proxy if any."""
+    if _upstream_proxy is None:
+        return http.client.HTTPSConnection(hostname, timeout=timeout)
+    host, port, headers = _upstream_proxy
+    connection = http.client.HTTPSConnection(host, port, timeout=timeout)
+    connection.set_tunnel(hostname, 443, headers=dict(headers))
+    return connection
+
+
 def fetch_models(upstream, headers, timeout=15):
     """GET {upstream}/models with the caller's in-memory authorization."""
     endpoint = urlsplit(validate_upstream(upstream))
-    connection = http.client.HTTPSConnection(endpoint.hostname, timeout=timeout)
+    connection = upstream_connection(endpoint.hostname, timeout)
     try:
         connection.request('GET', endpoint.path + '/models', headers=headers)
         response = connection.getresponse()
